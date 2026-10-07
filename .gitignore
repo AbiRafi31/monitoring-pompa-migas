@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.vscode/
+.venv/
+data_pompa.db
+data_pompa.csv
+*.xlsx
