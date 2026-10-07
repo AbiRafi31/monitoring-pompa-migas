@@ -1,8 +1,7 @@
 # Aplikasi Monitoring Sensor Pompa Migas
-
 ![Tampilan GUI](foto/image.png)
 
-Aplikasi desktop (Python) untuk ...
+
 
 
 Aplikasi desktop (Python) untuk mengelola data sensor pompa, menganalisisnya,
