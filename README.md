@@ -1,5 +1,8 @@
 # Aplikasi Monitoring Sensor Pompa Migas
+
 ![Tampilan GUI](foto/image.png)
+
+Aplikasi desktop (Python) untuk ...
 
 
 Aplikasi desktop (Python) untuk mengelola data sensor pompa, menganalisisnya,
@@ -23,8 +26,8 @@ Python, SQLite, pandas, NumPy, scikit-learn, matplotlib, tkinter
 ## Cara Menjalankan
 
 ```bash
-git clone https://github.com/USERNAME/NAMA-REPO.git
-cd NAMA-REPO
+git clone https://github.com/AbiRafi31/monitoring-pompa-migas.git
+cd monitoring-pompa-migas
 pip install -r requirements.txt
 python main.py
 ```
