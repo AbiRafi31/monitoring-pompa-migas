@@ -10,6 +10,8 @@ FILE_CSV = "data_pompa.csv"   # hanya dipakai SEKALI untuk memindahkan data lama
 KOLOM = ["id", "pompa_id", "suhu_c", "tekanan_psi", "getaran_mm_s", "status"]
 FITUR = ["suhu_c", "tekanan_psi", "getaran_mm_s"]
 SQL_TERAKHIR = ""             # menyimpan perintah SQL terakhir (untuk belajar)
+AMBANG_STANDAR = 0.5          # pompa dianggap "Rusak" jika peluang rusak >= ambang
+PILIHAN_AMBANG = ["0.5", "0.4", "0.3", "0.2"]
 
 
 # ---------------------------------------------------------------
@@ -164,11 +166,24 @@ def db_hapus(id_data):
 # ---------------------------------------------------------------
 # MACHINE LEARNING
 # ---------------------------------------------------------------
-def latih_model(df):
-    """Melatih Random Forest. Mengembalikan (model, teks_laporan)."""
-    from sklearn.ensemble import RandomForestClassifier
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import accuracy_score, classification_report
+# Model dipilih dari hasil eksperimen (eksperimen_model.py): Logistic Regression
+# dengan class_weight="balanced" memberi recall tertinggi untuk pompa "Rusak".
+# CATATAN: hasil itu didapat pada DATA SIMULASI yang dibuat dengan rumus linear,
+# jadi perlu diuji ulang pada data sensor sungguhan.
+def buat_model():
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    return make_pipeline(StandardScaler(),
+                         LogisticRegression(class_weight="balanced", max_iter=1000))
+
+
+def latih_model(df, ambang=AMBANG_STANDAR):
+    """Evaluasi dengan 5-fold cross-validation, lalu melatih model akhir pada
+    seluruh data. Mengembalikan (model, teks_laporan)."""
+    from sklearn.metrics import confusion_matrix
+    from sklearn.model_selection import StratifiedKFold, cross_val_predict
 
     hitung = df["status"].value_counts()
     if len(df) < 30 or len(hitung) < 2 or hitung.min() < 5:
@@ -178,31 +193,46 @@ def latih_model(df):
 
     X = df[FITUR]
     y = df["status"]
-    X_tr, X_te, y_tr, y_te = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y)
+    lipat = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(X_tr, y_tr)
-    pred = model.predict(X_te)
+    # Evaluasi: setiap data diprediksi oleh model yang TIDAK pernah melihatnya
+    idx_rusak = sorted(y.unique()).index("Rusak")
+    peluang = cross_val_predict(buat_model(), X, y, cv=lipat,
+                                method="predict_proba")[:, idx_rusak]
+    pred = np.where(peluang >= ambang, "Rusak", "Normal")
+    tn, fp, fn, tp = confusion_matrix(y, pred, labels=["Normal", "Rusak"]).ravel()
+    akurasi = (tp + tn) / len(y) * 100
+    recall = tp / (tp + fn) * 100 if (tp + fn) else 0.0
+    presisi = tp / (tp + fp) * 100 if (tp + fp) else 0.0
 
     laporan = (
-        f"Data latih: {len(X_tr)} baris | Data uji: {len(X_te)} baris\n"
-        f"Akurasi: {accuracy_score(y_te, pred) * 100:.1f}%\n\n"
-        + classification_report(y_te, pred, zero_division=0)
-        + "\nPengaruh tiap sensor terhadap prediksi:\n"
+        f"Model: Logistic Regression (class_weight=balanced)\n"
+        f"Evaluasi: 5-fold cross-validation pada {len(df)} data\n"
+        f"Ambang: dianggap Rusak jika peluang rusak >= {ambang}\n\n"
+        f"Akurasi          : {akurasi:.1f}%\n"
+        f"Rusak terdeteksi : {tp} dari {tp + fn} pompa rusak (recall {recall:.1f}%)\n"
+        f"Rusak TERLEWAT   : {fn}\n"
+        f"Alarm palsu      : {fp} (presisi {presisi:.1f}%)\n\n"
+        f"Pengaruh tiap sensor terhadap risiko rusak:\n"
     )
-    pentingnya = sorted(zip(FITUR, model.feature_importances_), key=lambda t: -t[1])
-    for nama, nilai in pentingnya:
-        laporan += f"  {nama:<14} {nilai * 100:5.1f}%\n"
+
+    # Model akhir dilatih pada seluruh data
+    model = buat_model().fit(X, y)
+    koef = model.named_steps["logisticregression"].coef_[0]   # positif = memperbesar risiko Rusak
+    total = np.abs(koef).sum()
+    for nama, k in sorted(zip(FITUR, koef), key=lambda t: -abs(t[1])):
+        arah = "naik" if k > 0 else "turun"
+        laporan += f"  {nama:<14} {abs(k) / total * 100:5.1f}%  (nilai naik -> risiko {arah})\n"
     return model, laporan
 
 
-def prediksi(model, suhu, tekanan, getaran):
+def prediksi(model, suhu, tekanan, getaran, ambang=AMBANG_STANDAR):
     """Mengembalikan (label, peluang_rusak)."""
     x = pd.DataFrame([[suhu, tekanan, getaran]], columns=FITUR)
-    label = model.predict(x)[0]
     peluang = dict(zip(model.classes_, model.predict_proba(x)[0]))
-    return label, float(peluang.get("Rusak", 0.0))
+    p_rusak = float(peluang.get("Rusak", 0.0))
+    label = "Rusak" if p_rusak >= ambang else "Normal"
+    return label, p_rusak
 
 
 # ---------------------------------------------------------------
@@ -366,9 +396,18 @@ def ganti_dengan_data_latihan():
 
 
 def menu_ml_terminal(df):
-    print("\n--- LATIH MODEL MACHINE LEARNING ---")
+    print("\n--- LATIH MODEL MACHINE LEARNING (Logistic Regression) ---")
+    ambang = input_angka(
+        "Ambang peluang rusak 0-1 (Enter = 0.5, lebih kecil = lebih waspada): ",
+        float, True)
+    if ambang is None:
+        ambang = AMBANG_STANDAR
+    elif not 0 < ambang < 1:
+        print("Ambang harus di antara 0 dan 1, dipakai 0.5.")
+        ambang = AMBANG_STANDAR
+
     try:
-        model, laporan = latih_model(df)
+        model, laporan = latih_model(df, ambang)
     except ImportError:
         print("Library scikit-learn belum terpasang.")
         print("Jalankan: python -m pip install scikit-learn")
@@ -384,8 +423,8 @@ def menu_ml_terminal(df):
         suhu = input_angka("Suhu (C): ")
         tekanan = input_angka("Tekanan (psi): ")
         getaran = input_angka("Getaran (mm/s): ")
-        label, p_rusak = prediksi(model, suhu, tekanan, getaran)
-        print(f"Prediksi: {label} (peluang rusak {p_rusak * 100:.0f}%)")
+        label, p_rusak = prediksi(model, suhu, tekanan, getaran, ambang)
+        print(f"Prediksi: {label} (peluang rusak {p_rusak * 100:.0f}%, ambang {ambang})")
 
 
 # ---------------------------------------------------------------
@@ -456,6 +495,7 @@ def main_gui():
     var_cari = tk.StringVar()
     var_info = tk.StringVar()
     var_sql = tk.StringVar()
+    var_ambang = tk.StringVar(value=str(AMBANG_STANDAR))
 
     # ---------- FORM INPUT ----------
     frm = ttk.LabelFrame(root, text="Form Data", padding=10)
@@ -724,10 +764,16 @@ def main_gui():
             bersihkan_form()
             messagebox.showinfo("Berhasil", "300 data simulasi siap dipakai untuk ML.")
 
+    def ambang_saat_ini():
+        try:
+            return float(var_ambang.get())
+        except ValueError:
+            return AMBANG_STANDAR
+
     def latih():
         nonlocal model
         try:
-            hasil, laporan = latih_model(df)
+            hasil, laporan = latih_model(df, ambang_saat_ini())
         except ImportError:
             messagebox.showerror(
                 "Error", "scikit-learn belum terpasang.\nJalankan: python -m pip install scikit-learn")
@@ -736,7 +782,7 @@ def main_gui():
             messagebox.showwarning("Data belum cukup", laporan)
             return
         model = hasil
-        tampil_teks("Hasil Pelatihan Model", laporan, 560, 440)
+        tampil_teks("Hasil Pelatihan Model", laporan, 640, 380)
 
     def prediksi_gui():
         if model is None:
@@ -745,8 +791,10 @@ def main_gui():
         sensor = ambil_sensor()
         if sensor is None:
             return
-        label, p_rusak = prediksi(model, *sensor)
-        pesan = f"Prediksi: {label}\nPeluang rusak: {p_rusak * 100:.0f}%"
+        ambang = ambang_saat_ini()
+        label, p_rusak = prediksi(model, *sensor, ambang)
+        pesan = (f"Prediksi: {label}\nPeluang rusak: {p_rusak * 100:.0f}%\n"
+                 f"(Rusak jika peluang >= {ambang})")
         if label == "Rusak":
             messagebox.showwarning("Hasil Prediksi", pesan)
         else:
@@ -763,6 +811,9 @@ def main_gui():
     ttk.Button(frm_tombol, text="Data Latihan (300)", command=data_latihan).pack(side="left", padx=3)
     ttk.Button(frm_tombol, text="Latih Model", command=latih).pack(side="left", padx=3)
     ttk.Button(frm_tombol, text="Prediksi", command=prediksi_gui).pack(side="left", padx=3)
+    ttk.Label(frm_tombol, text="Ambang rusak:").pack(side="left", padx=(10, 2))
+    ttk.Combobox(frm_tombol, textvariable=var_ambang, values=PILIHAN_AMBANG,
+                 state="readonly", width=5).pack(side="left")
 
     ttk.Button(frm_cari, text="Cari", command=cari).pack(side="left", padx=3)
     ttk.Button(frm_cari, text="Tampilkan Semua", command=tampil_semua).pack(side="left", padx=3)

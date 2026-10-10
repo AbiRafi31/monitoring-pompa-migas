@@ -12,7 +12,7 @@ Dibuat sebagai proyek belajar Data Science, dengan studi kasus industri minyak d
 - **GUI** berbasis tkinter dan **mode terminal**
 - **Pengurutan** data dengan klik judul kolom, dan **pewarnaan baris** (merah = rusak, kuning = risiko tinggi)
 - **Analisis data**: statistik deskriptif, rata-rata per pompa, grafik boxplot
-- **Machine learning**: model Random Forest untuk memprediksi status pompa (Normal / Rusak) beserta peluangnya
+- **Machine learning**: Logistic Regression untuk memprediksi status pompa (Normal / Rusak) beserta peluangnya, dengan ambang keputusan yang bisa diatur
 - **Eksperimen model**: perbandingan beberapa algoritma dengan cross-validation dan analisis ambang keputusan
 - **Ekspor** data ke Excel / CSV
 - Panel **"SQL terakhir"** yang menampilkan perintah SQL di balik setiap aksi
@@ -86,12 +86,12 @@ Temuan:
 ## Catatan
 
 - Seluruh data adalah **data simulasi** untuk keperluan belajar, bukan data operasional sungguhan.
-- Tombol "Latih Model" di aplikasi masih memakai Random Forest. Hasil eksperimen menunjukkan
+- Tombol di aplikasi masih memakai Random Forest. Hasil eksperimen menunjukkan
   Logistic Regression lebih baik pada data simulasi ini, tetapi belum dipasang ke aplikasi.
 
 ## Rencana Pengembangan
 
-- [x] Menangani data tidak seimbang dan membandingkan beberapa model
+- [x] Memasang model terbaik ke aplikasi
 - [ ] Memasang model terbaik ke aplikasi
 - [ ] Mencoba dataset terbuka NASA C-MAPSS (predictive maintenance)
 - [ ] Dashboard visualisasi (Power BI / Tableau)
