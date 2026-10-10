@@ -92,6 +92,5 @@ Temuan:
 ## Rencana Pengembangan
 
 - [x] Memasang model terbaik ke aplikasi
-- [ ] Memasang model terbaik ke aplikasi
 - [ ] Mencoba dataset terbuka NASA C-MAPSS (predictive maintenance)
 - [ ] Dashboard visualisasi (Power BI / Tableau)
